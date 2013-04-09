@@ -44,6 +44,8 @@ import android.os.SystemClock;
 import android.provider.MediaStore;
 import android.provider.MediaStore.Audio.AudioColumns;
 
+import android.util.Log; // tmtmtm
+
 import com.andrew.apollo.appwidgets.AppWidgetLarge;
 import com.andrew.apollo.appwidgets.AppWidgetLargeAlternate;
 import com.andrew.apollo.appwidgets.AppWidgetSmall;
@@ -69,6 +71,9 @@ import java.util.TreeSet;
  */
 @SuppressLint("NewApi")
 public class MusicPlaybackService extends Service {
+
+    private static final String TAG = "Apollo";  // tmtmtm
+
     /**
      * Indicates that the music has paused or resumed
      */
@@ -2182,6 +2187,7 @@ public class MusicPlaybackService extends Service {
          */
         @Override
         public void onAudioFocusChange(final int focusChange) {
+            Log.i(TAG, "onAudioFocusChange focusChange="+focusChange);  // tmtmtm
             mPlayerHandler.obtainMessage(FOCUSCHANGE, focusChange, 0).sendToTarget();
         }
     };
@@ -2294,24 +2300,33 @@ public class MusicPlaybackService extends Service {
                     switch (msg.arg1) {
                         case AudioManager.AUDIOFOCUS_LOSS:
                         case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS "+msg.arg1+" isPlaying="+service.isPlaying());  // tmtmtm
                             if (service.isPlaying()) {
                                 service.mPausedByTransientLossOfFocus =
                                     msg.arg1 == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT;
                             }
+                            // service.isPlaying() was falsely set to false // tmtmtm
+                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS set mPausedByTransientLossOfFocus");  // tmtmtm
+                            service.mPausedByTransientLossOfFocus = true;   // tmtmtm hacky fix
                             service.pause();
                             break;
                         case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK");  // tmtmtm
                             removeMessages(FADEUP);
                             sendEmptyMessage(FADEDOWN);
                             break;
                         case AudioManager.AUDIOFOCUS_GAIN:
+                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN isPlaying="+service.isPlaying()+
+                                        " mPausedByTransientLossOfFocus="+service.mPausedByTransientLossOfFocus);  // tmtmtm
                             if (!service.isPlaying()
                                     && service.mPausedByTransientLossOfFocus) {
                                 service.mPausedByTransientLossOfFocus = false;
-                                mCurrentVolume = 0f;
+                                //mCurrentVolume = 0f;      // tmtmtm why? removed
+                                Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN setVolume("+mCurrentVolume+") + play()");
                                 service.mPlayer.setVolume(mCurrentVolume);
                                 service.play();
                             } else {
+                                Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN -FADEDOWN +FADEUP");
                                 removeMessages(FADEDOWN);
                                 sendEmptyMessage(FADEUP);
                             }
