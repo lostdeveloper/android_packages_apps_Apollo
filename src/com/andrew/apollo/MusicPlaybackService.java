@@ -72,7 +72,7 @@ import java.util.TreeSet;
 @SuppressLint("NewApi")
 public class MusicPlaybackService extends Service {
 
-    private static final String TAG = "Apollo";  // tmtmtm
+    private static final String TAG = "Apollo MusicPlaybackService";  // tmtmtm
 
     /**
      * Indicates that the music has paused or resumed
@@ -1481,6 +1481,7 @@ public class MusicPlaybackService extends Service {
      * @param path The path of the file to open
      */
     public boolean openFile(final String path) {
+        Log.i(TAG, "openFile "+path);  // tmtmtm
         synchronized (this) {
             if (path == null) {
                 return false;
@@ -1521,6 +1522,7 @@ public class MusicPlaybackService extends Service {
                 }
             }
             mFileToPlay = path;
+            Log.i(TAG, "openFile setDataSource "+mFileToPlay);  // tmtmtm
             mPlayer.setDataSource(mFileToPlay);
             if (mPlayer.isInitialized()) {
                 mOpenFailedCounter = 0;
