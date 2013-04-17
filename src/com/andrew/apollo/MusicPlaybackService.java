@@ -337,7 +337,7 @@ public class MusicPlaybackService extends Service {
     /**
      * The path of the current file to play
      */
-    private String mFileToPlay;
+    private static String mFileToPlay;      // tmtmtm made static, so it can be accessed from onError()
 
     /**
      * Keeps the service running when the screen is off
@@ -379,6 +379,9 @@ public class MusicPlaybackService extends Service {
      * Used to track what type of audio focus loss caused the playback to pause
      */
     private boolean mPausedByTransientLossOfFocus = false;
+
+    // tmtmtm
+    private long mPausedPosition = 0l;
 
     /**
      * Returns true if the Apollo is sent to the background, false otherwise
@@ -465,6 +468,7 @@ public class MusicPlaybackService extends Service {
         mServiceInUse = false;
         saveQueue(true);
 
+        Log.i(TAG, "unbind mIsSupposedToBePlaying="+mIsSupposedToBePlaying+" paused="+mPausedByTransientLossOfFocus);
         if (mIsSupposedToBePlaying || mPausedByTransientLossOfFocus) {
             // Something is currently playing, or will be playing once
             // an in-progress action requesting audio focus ends, so don't stop
@@ -649,8 +653,9 @@ public class MusicPlaybackService extends Service {
         mDelayedStopHandler.removeCallbacksAndMessages(null);
         if (intent != null) {
             final String action = intent.getAction();
+            Log.i(TAG, "onStartCommand intent="+intent);
 
-           if (intent.hasExtra(NOW_IN_FOREGROUND)) {
+            if (intent.hasExtra(NOW_IN_FOREGROUND)) {
                 mBuildNotification = !intent.getBooleanExtra(NOW_IN_FOREGROUND, false);
                 if (mBuildNotification && isPlaying()) {
                     buildNotification();
@@ -701,17 +706,20 @@ public class MusicPlaybackService extends Service {
         } else if (CMDTOGGLEPAUSE.equals(command) || TOGGLEPAUSE_ACTION.equals(action)) {
             if (isPlaying()) {
                 pause();
+                Log.i(TAG, "handleCommandIntent TOGGLEPAUSE mPausedByTransientLossOfFocus="+mPausedByTransientLossOfFocus);
                 mPausedByTransientLossOfFocus = false;
             } else {
                 play();
             }
         } else if (CMDPAUSE.equals(command) || PAUSE_ACTION.equals(action)) {
             pause();
+            Log.i(TAG, "handleCommandIntent PAUSE mPausedByTransientLossOfFocus="+mPausedByTransientLossOfFocus);
             mPausedByTransientLossOfFocus = false;
         } else if (CMDPLAY.equals(command)) {
             play();
         } else if (CMDSTOP.equals(command) || STOP_ACTION.equals(action)) {
             pause();
+            Log.i(TAG, "handleCommandIntent STOP mPausedByTransientLossOfFocus="+mPausedByTransientLossOfFocus);
             mPausedByTransientLossOfFocus = false;
             seek(0);
             killNotification();
@@ -830,7 +838,7 @@ public class MusicPlaybackService extends Service {
      * @param remove_status_icon True to go to the idle state, false otherwise
      */
     private void stop(final boolean remove_status_icon) {
-        if (mPlayer.isInitialized()) {
+        if (mPlayer!=null && mPlayer.isInitialized()) {
             mPlayer.stop();
         }
         mFileToPlay = null;
@@ -956,6 +964,7 @@ public class MusicPlaybackService extends Service {
      * playback
      */
     private void openCurrentAndNext() {
+        Log.i(TAG, "openCurrentAndNext -> openCurrentAndMaybeNext");  // tmtmtm
         openCurrentAndMaybeNext(true);
     }
 
@@ -968,6 +977,8 @@ public class MusicPlaybackService extends Service {
      */
     private void openCurrentAndMaybeNext(final boolean openNext) {
         synchronized (this) {
+            // TODO: if audiofocus was grabbed, we should not access the filesystem
+
             if (mCursor != null) {
                 mCursor.close();
                 mCursor = null;
@@ -980,6 +991,9 @@ public class MusicPlaybackService extends Service {
 
             mCursor = getCursorForId(mPlayList[mPlayPos]);
             while (true) {
+                Log.i(TAG, "openCurrentAndMaybeNext loop top");  // tmtmtm
+                // TODO: if audiofocus was grabbed, we should not access the filesystem
+
                 if (mCursor != null
                         && mCursor.getCount() != 0
                         && openFile(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI + "/"
@@ -1017,6 +1031,7 @@ public class MusicPlaybackService extends Service {
                     return;
                 }
             }
+            Log.i(TAG, "openCurrentAndMaybeNext loop bottom; openNext="+openNext);  // tmtmtm
             if (openNext) {
                 setNextTrack();
             }
@@ -1348,7 +1363,7 @@ public class MusicPlaybackService extends Service {
             }
         }
         editor.putInt("curpos", mPlayPos);
-        if (mPlayer.isInitialized()) {
+        if (mPlayer!=null && mPlayer.isInitialized()) {
             editor.putLong("seekpos", mPlayer.position());
         }
         editor.putInt("repeatmode", mRepeatMode);
@@ -1482,6 +1497,9 @@ public class MusicPlaybackService extends Service {
      */
     public boolean openFile(final String path) {
         Log.i(TAG, "openFile "+path);  // tmtmtm
+
+        // TODO: if audiofocus was grabbed, we should not access the filesystem
+
         synchronized (this) {
             if (path == null) {
                 return false;
@@ -1523,10 +1541,13 @@ public class MusicPlaybackService extends Service {
             }
             mFileToPlay = path;
             Log.i(TAG, "openFile setDataSource "+mFileToPlay);  // tmtmtm
-            mPlayer.setDataSource(mFileToPlay);
-            if (mPlayer.isInitialized()) {
-                mOpenFailedCounter = 0;
-                return true;
+            if(mPlayer!=null) {
+                mPlayer.setDataSource(mFileToPlay);
+                Log.i(TAG, "openFile back from setDataSource "+mFileToPlay);  // tmtmtm
+                if (mPlayer!=null && mPlayer.isInitialized()) {
+                    mOpenFailedCounter = 0;
+                    return true;
+                }
             }
             stop(true);
             return false;
@@ -1863,6 +1884,7 @@ public class MusicPlaybackService extends Service {
                 AudioManager.AUDIOFOCUS_GAIN);
         mAudioManager.registerMediaButtonEventReceiver(new ComponentName(getPackageName(),
                 MediaButtonIntentReceiver.class.getName()));
+        Log.i(TAG, "play mPlayer.isInitialized="+mPlayer.isInitialized());  // tmtmtm
 
         if (mPlayer.isInitialized()) {
             final long duration = mPlayer.duration();
@@ -1871,7 +1893,9 @@ public class MusicPlaybackService extends Service {
                 gotoNext(true);
             }
 
+            Log.i(TAG, "play mPlayer.start()");  // tmtmtm
             mPlayer.start();
+            Log.i(TAG, "play mPlayer.start() done");  // tmtmtm
             mPlayerHandler.removeMessages(FADEDOWN);
             mPlayerHandler.sendEmptyMessage(FADEUP);
 
@@ -1906,6 +1930,7 @@ public class MusicPlaybackService extends Service {
      * Changes from the current track to the next track
      */
     public void gotoNext(final boolean force) {
+        Log.i(TAG, "gotoNext force="+force);  // tmtmtm
         synchronized (this) {
             if (mPlayListLen <= 0) {
                 return;
@@ -1961,6 +1986,7 @@ public class MusicPlaybackService extends Service {
      * the previously listened track if they're shuffling.
      */
     private void openCurrent() {
+        Log.i(TAG, "openCurrent -> openCurrentAndMaybeNext");  // tmtmtm
         openCurrentAndMaybeNext(false);
     }
 
@@ -2178,6 +2204,7 @@ public class MusicPlaybackService extends Service {
                 final int[] recent = intent.getIntArrayExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS);
                 mRecentWidgetProvider.performUpdate(MusicPlaybackService.this, recent);
             } else {
+                Log.i(TAG, "mIntentReceiver handleCommandIntent command="+command);
                 handleCommandIntent(intent);
             }
         }
@@ -2215,6 +2242,8 @@ public class MusicPlaybackService extends Service {
             if (service == null) {
                 return;
             }
+            Log.i(TAG, "DelayedHandler handleMessage paused="+service.mPausedByTransientLossOfFocus+
+                      " isPlaying="+service.isPlaying());  // tmtmtm
             if (service.isPlaying()
                     || service.mPausedByTransientLossOfFocus
                     || service.mServiceInUse
@@ -2271,10 +2300,17 @@ public class MusicPlaybackService extends Service {
                     service.mPlayer.setVolume(mCurrentVolume);
                     break;
                 case SERVER_DIED:
+                    Log.i(TAG, "SERVER_DIED isPlaying="+service.isPlaying()+" ###############"+
+                              " mPausedByTransientLossOfFocus="+service.mPausedByTransientLossOfFocus);  // tmtmtm
                     if (service.isPlaying()) {
                         service.gotoNext(true);
                     } else {
-                        service.openCurrentAndNext();
+                        if(service.mPausedByTransientLossOfFocus) {
+                            // we are in service.mPausedByTransientLossOfFocus mode
+                            Log.i(TAG, "SERVER_DIED SKIP openCurrentAndNext ###############");
+                        } else {
+                            service.openCurrentAndNext();
+                        }
                     }
                     break;
                 case TRACK_WENT_TO_NEXT:
@@ -2310,7 +2346,9 @@ public class MusicPlaybackService extends Service {
                             // service.isPlaying() was falsely set to false // tmtmtm
                             Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS set mPausedByTransientLossOfFocus");  // tmtmtm
                             service.mPausedByTransientLossOfFocus = true;   // tmtmtm hacky fix
+                            service.mPausedPosition = service.mPlayer.position();
                             service.pause();
+
                             break;
                         case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
                             Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK");  // tmtmtm
@@ -2318,15 +2356,27 @@ public class MusicPlaybackService extends Service {
                             sendEmptyMessage(FADEDOWN);
                             break;
                         case AudioManager.AUDIOFOCUS_GAIN:
-                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN isPlaying="+service.isPlaying()+
-                                        " mPausedByTransientLossOfFocus="+service.mPausedByTransientLossOfFocus);  // tmtmtm
-                            if (!service.isPlaying()
-                                    && service.mPausedByTransientLossOfFocus) {
-                                service.mPausedByTransientLossOfFocus = false;
+                            boolean isPlaying = service.isPlaying();
+                            boolean isPaused = service.mPausedByTransientLossOfFocus;
+                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN isPlaying="+isPlaying+
+                                        " mPausedByTransientLossOfFocus="+isPaused);  // tmtmtm
+                            // tmtmtm fix: continue same song
+                            if(!service.mPlayer.isInitialized()) {
+                                // probably because SERVER_DIED on forced unmount
+                                Log.i(TAG, "handleMessage FOCUSCHANGE setDataSource="+mFileToPlay+" ################");
+                                service.mPlayer.setDataSource(mFileToPlay);
+                                service.mPlayer.seek(service.mPausedPosition);
+                            } else {
+                                Log.i(TAG, "handleMessage FOCUSCHANGE mplayer still initialized ################");
+                            }
+
+                            if (!isPlaying && isPaused) {
                                 //mCurrentVolume = 0f;      // tmtmtm why? removed
                                 Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN setVolume("+mCurrentVolume+") + play()");
+                                // TODO: set old position
                                 service.mPlayer.setVolume(mCurrentVolume);
                                 service.play();
+                                service.mPausedByTransientLossOfFocus = false;
                             } else {
                                 Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN -FADEDOWN +FADEUP");
                                 removeMessages(FADEDOWN);
@@ -2402,10 +2452,13 @@ public class MusicPlaybackService extends Service {
 
         private boolean mIsInitialized = false;
 
+        private MusicPlaybackService service = null;
+
         /**
          * Constructor of <code>MultiPlayer</code>
          */
         public MultiPlayer(final MusicPlaybackService service) {
+            this.service = service;
             mService = new WeakReference<MusicPlaybackService>(service);
             mCurrentMediaPlayer.setWakeMode(mService.get(), PowerManager.PARTIAL_WAKE_LOCK);
         }
@@ -2432,10 +2485,12 @@ public class MusicPlaybackService extends Service {
             try {
                 player.reset();
                 player.setOnPreparedListener(null);
-                if (path.startsWith("content://")) {
-                    player.setDataSource(mService.get(), Uri.parse(path));
-                } else {
-                    player.setDataSource(path);
+                if (path!=null) {
+                    if (path.startsWith("content://")) {
+                        player.setDataSource(mService.get(), Uri.parse(path));
+                    } else {
+                        player.setDataSource(path);
+                    }
                 }
                 player.setAudioStreamType(AudioManager.STREAM_MUSIC);
                 player.prepare();
@@ -2590,10 +2645,12 @@ public class MusicPlaybackService extends Service {
          */
         @Override
         public boolean onError(final MediaPlayer mp, final int what, final int extra) {
+            Log.i(TAG, "mplayer onError");  // tmtmtm
             switch (what) {
                 case MediaPlayer.MEDIA_ERROR_SERVER_DIED:
                     mIsInitialized = false;
                     mCurrentMediaPlayer.release();
+                    Log.i(TAG, "mplayer onError new MediaPlayer() paused="+service.mPausedByTransientLossOfFocus);
                     mCurrentMediaPlayer = new MediaPlayer();
                     mCurrentMediaPlayer.setWakeMode(mService.get(), PowerManager.PARTIAL_WAKE_LOCK);
                     mHandler.sendMessageDelayed(mHandler.obtainMessage(SERVER_DIED), 2000);
