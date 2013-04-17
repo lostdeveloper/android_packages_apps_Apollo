@@ -337,7 +337,7 @@ public class MusicPlaybackService extends Service {
     /**
      * The path of the current file to play
      */
-    private static String mFileToPlay;      // tmtmtm made static, so it can be accessed from onError()
+    private static String mFileToPlay = null;      // tmtmtm made static added null, so it can be accessed from onError()
 
     /**
      * Keeps the service running when the screen is off
@@ -841,6 +841,7 @@ public class MusicPlaybackService extends Service {
         if (mPlayer!=null && mPlayer.isInitialized()) {
             mPlayer.stop();
         }
+        Log.i(TAG, "stop() clear mFileToPlay");  // tmtmtm
         mFileToPlay = null;
         if (mCursor != null) {
             mCursor.close();
@@ -1541,7 +1542,7 @@ public class MusicPlaybackService extends Service {
             }
             mFileToPlay = path;
             Log.i(TAG, "openFile setDataSource "+mFileToPlay);  // tmtmtm
-            if(mPlayer!=null) {
+            if(mPlayer!=null && mFileToPlay!=null) {
                 mPlayer.setDataSource(mFileToPlay);
                 Log.i(TAG, "openFile back from setDataSource "+mFileToPlay);  // tmtmtm
                 if (mPlayer!=null && mPlayer.isInitialized()) {
@@ -2363,9 +2364,13 @@ public class MusicPlaybackService extends Service {
                             // tmtmtm fix: continue same song
                             if(!service.mPlayer.isInitialized()) {
                                 // probably because SERVER_DIED on forced unmount
-                                Log.i(TAG, "handleMessage FOCUSCHANGE setDataSource="+mFileToPlay+" ################");
-                                service.mPlayer.setDataSource(mFileToPlay);
-                                service.mPlayer.seek(service.mPausedPosition);
+                                if(mFileToPlay!=null) {
+                                    Log.i(TAG, "handleMessage FOCUSCHANGE setDataSource="+mFileToPlay+" ################");
+                                    service.mPlayer.setDataSource(mFileToPlay);
+                                }
+                                if(service.mPausedPosition>0l) {
+                                    service.mPlayer.seek(service.mPausedPosition);
+                                }
                             } else {
                                 Log.i(TAG, "handleMessage FOCUSCHANGE mplayer still initialized ################");
                             }
@@ -2483,21 +2488,32 @@ public class MusicPlaybackService extends Service {
          */
         private boolean setDataSourceImpl(final MediaPlayer player, final String path) {
             try {
-                player.reset();
-                player.setOnPreparedListener(null);
-                if (path!=null) {
-                    if (path.startsWith("content://")) {
-                        player.setDataSource(mService.get(), Uri.parse(path));
-                    } else {
-                        player.setDataSource(path);
+                if(player!=null) {
+                    player.reset();
+                    player.setOnPreparedListener(null);
+                    if (path!=null) {
+                        if (path.startsWith("content://")) {
+                            player.setDataSource(mService.get(), Uri.parse(path));
+                        } else {
+                            player.setDataSource(path);
+                        }
+                    }
+                    if(player!=null) {
+                        player.setAudioStreamType(AudioManager.STREAM_MUSIC);
+                        if(player!=null)
+                            player.prepare();   // -> java.lang.IllegalStateException
                     }
                 }
-                player.setAudioStreamType(AudioManager.STREAM_MUSIC);
-                player.prepare();
             } catch (final IOException todo) {
                 // TODO: notify the user why the file couldn't be opened
+                Log.e(TAG, "setDataSourceImpl",todo);
                 return false;
             } catch (final IllegalArgumentException todo) {
+                // TODO: notify the user why the file couldn't be opened
+                Log.e(TAG, "setDataSourceImpl",todo);
+                return false;
+            } catch (final Exception todo) {           
+                Log.e(TAG, "setDataSourceImpl",todo);
                 // TODO: notify the user why the file couldn't be opened
                 return false;
             }
