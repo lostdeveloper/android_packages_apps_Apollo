@@ -337,7 +337,7 @@ public class MusicPlaybackService extends Service {
     /**
      * The path of the current file to play
      */
-    private static String mFileToPlay = null;      // tmtmtm made static added null, so it can be accessed from onError()
+    private String mFileToPlay;
 
     /**
      * Keeps the service running when the screen is off
@@ -378,10 +378,12 @@ public class MusicPlaybackService extends Service {
     /**
      * Used to track what type of audio focus loss caused the playback to pause
      */
-    private boolean mPausedByTransientLossOfFocus = false;
+    private static boolean mPausedByTransientLossOfFocus = false;       // tmtmtm made static so
 
     // tmtmtm
-    private long mPausedPosition = 0l;
+    private static long mPausedPosition = 0l;
+    private static String mLastFileToPlay = null;      
+    private static String mFilePlayedWhenAudioFocusGrabbed = null;      // tmtmtm made static + added null, so it can be accessed from onError()
 
     /**
      * Returns true if the Apollo is sent to the background, false otherwise
@@ -841,8 +843,12 @@ public class MusicPlaybackService extends Service {
         if (mPlayer!=null && mPlayer.isInitialized()) {
             mPlayer.stop();
         }
-        Log.i(TAG, "stop() clear mFileToPlay");  // tmtmtm
+
+        // tmtmtm
+        Log.i(TAG, "stop() clear mFileToPlay");
+        mLastFileToPlay = mFileToPlay;
         mFileToPlay = null;
+
         if (mCursor != null) {
             mCursor.close();
             mCursor = null;
@@ -994,6 +1000,10 @@ public class MusicPlaybackService extends Service {
             while (true) {
                 Log.i(TAG, "openCurrentAndMaybeNext loop top");  // tmtmtm
                 // TODO: if audiofocus was grabbed, we should not access the filesystem
+                if(mPausedByTransientLossOfFocus) {
+                    Log.i(TAG, "openCurrentAndMaybeNext stop loop due to mPausedByTransientLossOfFocus");  // tmtmtm
+                    return;
+                }
 
                 if (mCursor != null
                         && mCursor.getCount() != 0
@@ -1661,10 +1671,13 @@ public class MusicPlaybackService extends Service {
      */
     public String getPath() {
         synchronized (this) {
-            if (mCursor == null) {
-                return null;
+            if (mCursor != null) {
+                try {
+                    return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.DATA));
+                } catch(Exception ex) {
+                }
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.DATA));
+            return null;
         }
     }
 
@@ -1675,10 +1688,13 @@ public class MusicPlaybackService extends Service {
      */
     public String getAlbumName() {
         synchronized (this) {
-            if (mCursor == null) {
-                return null;
+            if (mCursor != null) {
+                try {
+                    return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.ALBUM));
+                } catch(Exception ex) {
+                }
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.ALBUM));
+            return null;
         }
     }
 
@@ -1689,10 +1705,15 @@ public class MusicPlaybackService extends Service {
      */
     public String getTrackName() {
         synchronized (this) {
-            if (mCursor == null) {
-                return null;
+            if (mCursor != null) {
+                try {
+                    return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.TITLE));
+                } catch(Exception ex) {
+                    Log.i(TAG, "getTrackName() failed");  // tmtmtm
+                    try { Thread.sleep(300); } catch(Exception ex2) { }
+                }
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.TITLE));
+            return null;
         }
     }
 
@@ -1703,10 +1724,13 @@ public class MusicPlaybackService extends Service {
      */
     public String getArtistName() {
         synchronized (this) {
-            if (mCursor == null) {
-                return null;
+            if (mCursor != null) {
+                try {
+                    return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.ARTIST));
+                } catch(Exception ex) {
+                }
             }
-            return mCursor.getString(mCursor.getColumnIndexOrThrow(AudioColumns.ARTIST));
+            return null;
         }
     }
 
@@ -1717,10 +1741,13 @@ public class MusicPlaybackService extends Service {
      */
     public long getAlbumId() {
         synchronized (this) {
-            if (mCursor == null) {
-                return -1;
+            if (mCursor != null) {
+                try {
+                    return mCursor.getLong(mCursor.getColumnIndexOrThrow(AudioColumns.ALBUM_ID));
+                } catch(Exception ex) {
+                }
             }
-            return mCursor.getLong(mCursor.getColumnIndexOrThrow(AudioColumns.ALBUM_ID));
+            return -1;
         }
     }
 
@@ -1731,10 +1758,13 @@ public class MusicPlaybackService extends Service {
      */
     public long getArtistId() {
         synchronized (this) {
-            if (mCursor == null) {
-                return -1;
+            if (mCursor != null) {
+                try {
+                    return mCursor.getLong(mCursor.getColumnIndexOrThrow(AudioColumns.ARTIST_ID));
+                } catch(Exception ex) {
+                }
             }
-            return mCursor.getLong(mCursor.getColumnIndexOrThrow(AudioColumns.ARTIST_ID));
+            return -1;
         }
     }
 
@@ -1745,7 +1775,7 @@ public class MusicPlaybackService extends Service {
      */
     public long getAudioId() {
         synchronized (this) {
-            if (mPlayPos >= 0 && mPlayer.isInitialized()) {
+            if (mPlayPos >= 0 && mPlayer!=null && mPlayer.isInitialized()) {
                 return mPlayList[mPlayPos];
             }
         }
@@ -1885,7 +1915,13 @@ public class MusicPlaybackService extends Service {
                 AudioManager.AUDIOFOCUS_GAIN);
         mAudioManager.registerMediaButtonEventReceiver(new ComponentName(getPackageName(),
                 MediaButtonIntentReceiver.class.getName()));
-        Log.i(TAG, "play mPlayer.isInitialized="+mPlayer.isInitialized());  // tmtmtm
+        if(mPlayer!=null) {
+            Log.i(TAG, "play mPlayer.isInitialized="+mPlayer.isInitialized()+
+                      " mFileToPlay="+mFileToPlay+" mPausedPosition="+mPausedPosition);  // tmtmtm
+            if(!mPlayer.isInitialized() && mFileToPlay!=null) {
+                mPlayer.setDataSource(mFileToPlay);
+            }
+        }
 
         if (mPlayer.isInitialized()) {
             final long duration = mPlayer.duration();
@@ -2315,11 +2351,13 @@ public class MusicPlaybackService extends Service {
                     }
                     break;
                 case TRACK_WENT_TO_NEXT:
+                    Log.i(TAG, "TRACK_WENT_TO_NEXT ###############");
                     service.mPlayPos = service.mNextPlayPos;
                     if (service.mCursor != null) {
                         service.mCursor.close();
                     }
                     service.mCursor = service.getCursorForId(service.mPlayList[service.mPlayPos]);
+//tmtmtm
                     service.notifyChange(META_CHANGED);
                     service.buildNotification();
                     service.setNextTrack();
@@ -2345,9 +2383,15 @@ public class MusicPlaybackService extends Service {
                                     msg.arg1 == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT;
                             }
                             // service.isPlaying() was falsely set to false // tmtmtm
-                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS set mPausedByTransientLossOfFocus");  // tmtmtm
                             service.mPausedByTransientLossOfFocus = true;   // tmtmtm hacky fix
-                            service.mPausedPosition = service.mPlayer.position();
+                            if(service.mFileToPlay!=null)
+                                mFilePlayedWhenAudioFocusGrabbed = service.mFileToPlay;
+                            else
+                                mFilePlayedWhenAudioFocusGrabbed = mLastFileToPlay;
+                            mPausedPosition = service.mPlayer.position();
+                            Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_LOSS set mPausedByTrans."+
+                                      " mFilePlayedWhenAudioFocusGrabbed="+mFilePlayedWhenAudioFocusGrabbed+
+                                      " mPausedPosition="+mPausedPosition);
                             service.pause();
 
                             break;
@@ -2364,12 +2408,17 @@ public class MusicPlaybackService extends Service {
                             // tmtmtm fix: continue same song
                             if(!service.mPlayer.isInitialized()) {
                                 // probably because SERVER_DIED on forced unmount
-                                if(mFileToPlay!=null) {
-                                    Log.i(TAG, "handleMessage FOCUSCHANGE setDataSource="+mFileToPlay+" ################");
-                                    service.mPlayer.setDataSource(mFileToPlay);
+                                //if(mFileToPlay!=null) {
+                                Log.i(TAG, "handleMessage FOCUSCHANGE setDataSource="+mFilePlayedWhenAudioFocusGrabbed+" ################");
+                                if(mFilePlayedWhenAudioFocusGrabbed!=null) {
+                                    service.mFileToPlay = mFilePlayedWhenAudioFocusGrabbed;
+
+                                    // TODO: this will fail post power loss with an IOException
+                                    // if file is on external filesystem and this media is not yet scanned
+                                    service.mPlayer.setDataSource(mFilePlayedWhenAudioFocusGrabbed);
                                 }
-                                if(service.mPausedPosition>0l) {
-                                    service.mPlayer.seek(service.mPausedPosition);
+                                if(mPausedPosition>0l) {
+                                    service.mPlayer.seek(mPausedPosition);
                                 }
                             } else {
                                 Log.i(TAG, "handleMessage FOCUSCHANGE mplayer still initialized ################");
@@ -2378,7 +2427,6 @@ public class MusicPlaybackService extends Service {
                             if (!isPlaying && isPaused) {
                                 //mCurrentVolume = 0f;      // tmtmtm why? removed
                                 Log.i(TAG, "handleMessage FOCUSCHANGE AUDIOFOCUS_GAIN setVolume("+mCurrentVolume+") + play()");
-                                // TODO: set old position
                                 service.mPlayer.setVolume(mCurrentVolume);
                                 service.play();
                                 service.mPausedByTransientLossOfFocus = false;
@@ -2674,6 +2722,7 @@ public class MusicPlaybackService extends Service {
                 default:
                     break;
             }
+            Log.i(TAG, "mplayer onError return false");  // tmtmtm
             return false;
         }
 
@@ -2683,11 +2732,13 @@ public class MusicPlaybackService extends Service {
         @Override
         public void onCompletion(final MediaPlayer mp) {
             if (mp == mCurrentMediaPlayer && mNextMediaPlayer != null) {
+                Log.i(TAG, "onCompletion 1 ###############");
                 mCurrentMediaPlayer.release();
                 mCurrentMediaPlayer = mNextMediaPlayer;
                 mNextMediaPlayer = null;
                 mHandler.sendEmptyMessage(TRACK_WENT_TO_NEXT);
             } else {
+                Log.i(TAG, "onCompletion 2 ###############");
                 mService.get().mWakeLock.acquire(30000);
                 mHandler.sendEmptyMessage(TRACK_ENDED);
                 mHandler.sendEmptyMessage(RELEASE_WAKELOCK);
